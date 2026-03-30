@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir \
     openai anthropic httpx aiofiles pyyaml python-dotenv \
-    && pip install --no-cache-dir -r requirements.txt || true
+    && pip install --no-cache-dir -r requirements.txt || true \
+    && playwright install chromium --with-deps
 
 # --- Core Ouroboros files (same as what Colab clones) ---
 COPY VERSION ./VERSION
