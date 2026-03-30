@@ -96,11 +96,14 @@ async def run_bench_task(prompt, workspace, model, timeout, transcript_out,
         # --- Augment prompt with workspace context ---
         # Agent tools default to repo_dir (/app); workspace files are at /workspace.
         # Shell tool accepts absolute paths, so we tell the agent where to look.
+        # /no_think disables chain-of-thought on Qwen3 thinking models so they use tools
+        # instead of just describing what they would do.
         augmented_prompt = (
             f"[Bench workspace: {workspace}]\n"
-            f"Task files are in {workspace}/. Access them with absolute paths, e.g.:\n"
-            f'  run_shell(["cat", "{workspace}/filename.txt"])\n'
-            f'  run_shell(["bash", "-c", "echo result > {workspace}/output.txt"])\n'
+            f"IMPORTANT: Complete the task by calling tools. Do NOT just describe what you would do.\n"
+            f"Files are in {workspace}/. Use run_shell with absolute paths:\n"
+            f'  run_shell(["cat", "{workspace}/filename.txt"])  # read\n'
+            f'  run_shell(["bash", "-c", "cat > {workspace}/output.txt <<\'EOF\'\\ncontent\\nEOF"])  # write\n'
             f"\n"
             f"{prompt}"
         )

@@ -33,9 +33,14 @@ RUN mkdir -p /workspace /transcripts \
 RUN git config --global user.email "bench@bench" && \
     git config --global user.name "bench"
 
+# --- .gitignore: keep __pycache__ out of git status so startup auto-rescue is silent ---
+RUN printf '__pycache__/\n*.pyc\n*.pyo\n' > /app/.gitignore
+
 # --- Init git repo in /app so git tools don't crash ---
+# Tag the commit so version_sync check sees a matching tag and stays quiet
 RUN cd /app && git init && git add -A && \
-    git commit -m "bench" --allow-empty 2>/dev/null || true
+    git commit -m "bench" --allow-empty 2>/dev/null || true && \
+    git tag "$(cat VERSION 2>/dev/null || echo '0.0.0')" 2>/dev/null || true
 
 ENV OUROBOROS_BENCH_MODE=1 \
     OUROBOROS_EVOLUTION_ENABLED=0 \
