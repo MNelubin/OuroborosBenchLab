@@ -92,9 +92,10 @@ def execute_ouroboros_task(
         model_name = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4-6")
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    openai_api_key = os.environ.get("OPENAI_API_KEY", "")
 
     container_name = f"ouro-bench-{uuid.uuid4().hex[:8]}"
-    
+
     env_vars = [
         "-e", f"OPENROUTER_API_KEY={api_key}",
         "-e", f"OUROBOROS_MODEL={model_name}",
@@ -103,6 +104,8 @@ def execute_ouroboros_task(
         "-e", "OUROBOROS_EVOLUTION_ENABLED=0",
         "-e", "OUROBOROS_CONSCIOUSNESS_ENABLED=0",
     ]
+    if openai_api_key:
+        env_vars.extend(["-e", f"OPENAI_API_KEY={openai_api_key}"])
     
     # Check if proxy_url is passed or if it exists in the environment
     actual_proxy = proxy_url or os.environ.get("OUROBOROS_PROXY_URL")
