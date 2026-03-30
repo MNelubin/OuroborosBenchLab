@@ -325,21 +325,36 @@ class OuroborosAgent:
 
         if issues > 0:
             log.warning(f"Startup verification found {issues} issue(s): {checks}")
-    # --- ДОБАВИТЬ В КОНЕЦ КЛАССА AGENT ---
-    
+    # --- Headless benchmark entry point ---
+
     async def run_bench(self, task: str, logger, workspace: str):
         """
-        Headless benchmark mode: run task via LLM and log to transcript.
+        Headless benchmark mode — runs Ouroboros with FULL context,
+        identical to how it runs in Colab (SYSTEM.md + BIBLE.md + identity + memory).
+
+        This ensures we are benchmarking the real Ouroboros agent,
+        not a stripped-down LLM with tools.
         """
         import os
-        import queue
-        import pathlib
-        
-        # Set workspace
+        import queue as queue_mod
+
+        # Set workspace for tools that need it
         os.environ["OUROBOROS_WORKSPACE"] = workspace
-        
-        # Create minimal tool context
-        from ouroboros.tools.registry import ToolContext
+
+        # --- Ensure drive directory structure (mirrors Colab bootstrap) ---
+        for sub in ("state", "logs", "memory", "index", "locks", "archive"):
+            (self.env.drive_root / sub).mkdir(parents=True, exist_ok=True)
+
+        # --- Ensure minimal state.json exists (avoids read errors) ---
+        state_path = self.env.drive_path("state") / "state.json"
+        if not state_path.exists():
+            import json as _json
+            state_path.write_text(_json.dumps({
+                "spent_usd": 0, "total_budget": 0,
+                "current_branch": "bench", "current_sha": "bench",
+            }), encoding="utf-8")
+
+        # --- Set up tool context (same as handle_task) ---
         ctx = ToolContext(
             repo_dir=self.env.repo_dir,
             drive_root=self.env.drive_root,
@@ -352,19 +367,25 @@ class OuroborosAgent:
             is_direct_chat=True,
         )
         self.tools.set_context(ctx)
-        
-        # Build messages
-        messages = [{"role": "user", "content": task}]
-        
-        # Get tool schemas (exclude dangerous tools in bench mode)
-        tool_schemas = self.tools.schemas(core_only=True)
-        
-        # Run LLM loop
-        from ouroboros.loop import run_llm_loop
-        
+
+        # --- Build FULL context via build_llm_messages (same as Colab) ---
+        # This loads SYSTEM.md, BIBLE.md, identity.md, scratchpad, etc.
+        task_dict = {
+            "id": "bench_task",
+            "type": "user",          # "user" type = standard task context
+            "text": task,
+            "_is_direct_chat": True,
+        }
+        messages, cap_info = build_llm_messages(
+            env=self.env,
+            memory=self.memory,
+            task=task_dict,
+        )
+
+        # --- Run LLM loop (identical to handle_task) ---
         drive_logs = self.env.drive_path("logs")
         drive_logs.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             final_text, usage, trace = run_llm_loop(
                 messages=messages,
@@ -372,7 +393,7 @@ class OuroborosAgent:
                 llm=self.llm,
                 drive_logs=drive_logs,
                 emit_progress=lambda x: None,
-                incoming_messages=queue.Queue(),  # FIX: Pass empty queue instead of None
+                incoming_messages=queue_mod.Queue(),
                 task_type="bench",
                 task_id="bench_task",
                 budget_remaining_usd=None,
@@ -380,18 +401,18 @@ class OuroborosAgent:
                 initial_effort="medium",
                 drive_root=self.env.drive_root,
             )
-            
+
             # Log assistant response
             if final_text:
                 logger.log_assistant(final_text, usage=usage)
-            
+
             # Log tool calls from trace
             for tc in trace.get("tool_calls", []):
                 logger.log_tool_use(tc.get("tool", "unknown"), tc.get("args", {}))
                 logger.log_tool_result(tc.get("tool", "unknown"), tc.get("result", ""))
-            
+
             return "success"
-            
+
         except Exception as e:
             import traceback
             traceback.print_exc()

@@ -11,12 +11,27 @@ RUN pip install --no-cache-dir \
     openai anthropic httpx aiofiles pyyaml python-dotenv \
     && pip install --no-cache-dir -r requirements.txt || true
 
+# --- Core Ouroboros files (same as what Colab clones) ---
 COPY VERSION ./VERSION
+COPY BIBLE.md ./BIBLE.md
+COPY README.md ./README.md
+COPY prompts/ ./prompts/
+COPY pyproject.toml ./pyproject.toml
 
+# --- Ouroboros package + bench CLI ---
 COPY ouroboros/ ./ouroboros/
 COPY ouroboros/bench_cli.py ./bench_cli.py
 
-RUN mkdir -p /workspace /transcripts
+# --- Drive-like directory structure (mirrors Google Drive layout in Colab) ---
+# /drive is the persistent drive_root (like Google Drive/Ouroboros in Colab)
+# /transcripts is for benchmark transcript output (mounted by runner)
+# /workspace is the task workspace (mounted by runner)
+RUN mkdir -p /workspace /transcripts \
+    /drive/state /drive/logs /drive/memory /drive/index /drive/locks /drive/archive
+
+# --- Init git repo in /app so git tools don't crash ---
+RUN cd /app && git init && git add -A && \
+    git -c user.name="bench" -c user.email="bench@bench" commit -m "bench" --allow-empty 2>/dev/null || true
 
 ENV OUROBOROS_BENCH_MODE=1 \
     OUROBOROS_EVOLUTION_ENABLED=0 \

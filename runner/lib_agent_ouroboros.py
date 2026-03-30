@@ -91,6 +91,7 @@ def execute_ouroboros_task(
         "-v", f"{transcript_dir}:/transcripts",
         "-e", f"OPENROUTER_API_KEY={api_key}",
         "-e", f"OUROBOROS_MODEL={model_name}",
+        "-e", f"OUROBOROS_MODEL_CODE={model_name}",
         "-e", "OUROBOROS_BENCH_MODE=1",
         "-e", "OUROBOROS_EVOLUTION_ENABLED=0",
         "-e", "OUROBOROS_CONSCIOUSNESS_ENABLED=0",
@@ -101,6 +102,8 @@ def execute_ouroboros_task(
         "--model",          model_name,
         "--timeout",        str(timeout),
         "--transcript-out", f"/transcripts/{TRANSCRIPT_FILENAME}",
+        "--repo-dir",       "/app",
+        "--drive-root",     "/drive",
     ]
 
     log.info(f"Starting container: {container_name} (timeout={timeout}s)")
