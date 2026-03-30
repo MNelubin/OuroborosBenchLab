@@ -117,9 +117,15 @@ class LLMClient:
     def _get_client(self):
         if self._client is None:
             from openai import OpenAI
+            http_client = None
+            proxy_url = os.environ.get("OUROBOROS_PROXY_URL", "")
+            if proxy_url:
+                import httpx
+                http_client = httpx.Client(proxy=proxy_url)
             self._client = OpenAI(
                 base_url=self._base_url,
                 api_key=self._api_key,
+                http_client=http_client,
                 default_headers={
                     "HTTP-Referer": "https://colab.research.google.com/",
                     "X-Title": "Ouroboros",
