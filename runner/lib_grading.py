@@ -91,6 +91,56 @@ def grade_task(
     raise ValueError(f"Unknown grading type: {grading_type}")
 
 
+def _normalize_transcript_for_grading(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Convert Ouroboros JSONL transcript to OpenClaw-compatible format so that
+    grading functions (written for OpenClaw) don't crash on Ouroboros output.
+
+    Ouroboros:  content is a plain string; tool_use/tool_result are top-level events.
+    OpenClaw:   content is a list of typed items; tool calls are embedded in assistant message.
+    """
+    normalized = []
+    for event in transcript:
+        t = event.get("type")
+        if t == "message":
+            msg = event.get("message", event)
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                # Wrap string content as OpenClaw text item
+                norm_content: List[Any] = [{"type": "text", "text": content}]
+            else:
+                norm_content = content
+            normalized.append({
+                "type": "message",
+                "message": {**msg, "content": norm_content},
+            })
+        elif t == "tool_use":
+            # Represent as an assistant message with a toolCall content item
+            normalized.append({
+                "type": "message",
+                "message": {
+                    "role": "assistant",
+                    "content": [{
+                        "type": "toolCall",
+                        "name": event.get("name", ""),
+                        "params": event.get("input", {}),
+                    }],
+                },
+            })
+        elif t == "tool_result":
+            # Represent as a toolResult role message
+            normalized.append({
+                "type": "message",
+                "message": {
+                    "role": "toolResult",
+                    "content": [{"type": "text", "text": str(event.get("output", ""))}],
+                },
+            })
+        else:
+            normalized.append(event)
+    return normalized
+
+
 def _grade_automated(task: Task, execution_result: Dict[str, Any], verbose: bool = False) -> GradeResult:
     grading_code = _extract_grading_code(task)
     if not grading_code:
@@ -117,7 +167,7 @@ def _grade_automated(task: Task, execution_result: Dict[str, Any], verbose: bool
         )
 
     scores = grade_func(
-        execution_result.get("transcript", []),
+        _normalize_transcript_for_grading(execution_result.get("transcript", [])),
         execution_result.get("workspace", ""),
     )
     if not isinstance(scores, dict):
