@@ -386,6 +386,9 @@ class OuroborosAgent:
         drive_logs = self.env.drive_path("logs")
         drive_logs.mkdir(parents=True, exist_ok=True)
 
+        if logger:
+            logger.log({"type": "full_context", "messages": messages})
+
         try:
             final_text, usage, trace = run_llm_loop(
                 messages=messages,
@@ -410,6 +413,9 @@ class OuroborosAgent:
             for tc in trace.get("tool_calls", []):
                 logger.log_tool_use(tc.get("tool", "unknown"), tc.get("args", {}))
                 logger.log_tool_result(tc.get("tool", "unknown"), tc.get("result", ""))
+
+            if logger:
+                logger.log({"type": "full_messages", "messages": messages})
 
             return "success"
 

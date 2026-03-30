@@ -55,21 +55,20 @@ def load_tasks(tasks_dir, suite="all", task_ids=None):
         tasks.append(t)
     return tasks
 
-def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1.0, judge_model=None):
+def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1.0,
+             judge_model=None, output_dir=None, proxy_url=None):
     ws = Path(ws_root) / task.id
     prepare_task_workspace(task, str(ws))
 
     if verbose:
         log.info(f"--- PROMPT START ---\n{task.prompt}\n--- PROMPT END ---")
-        log.info(f"--- RAW GRADING DATA (len={len(task.automated_checks)}) ---")
-        log.info(f"{task.automated_checks[:300]}...")
 
     effective_timeout = max(int(task.timeout * timeout_multiplier), task.timeout)
     ex = execute_ouroboros_task(
         agent_id=agent_id, prompt=task.prompt, timeout=effective_timeout,
-        model_name=model, workspace_path=str(ws)
+        model_name=model, workspace_path=str(ws), proxy_url=proxy_url
     )
-    
+
     if verbose and ex.transcript:
         log.info("--- TRANSCRIPT START ---")
         for entry in ex.transcript:
@@ -77,11 +76,13 @@ def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1
             if t == "message":
                 role = entry.get("message", {}).get("role", "?")
                 content = entry.get("message", {}).get("content", "")
-                log.info(f"[{role.upper()}]: {str(content)[:100]}...")
+                log.info(f"[{role.upper()}]:\n{content}\n")
             elif t == "tool_use":
-                log.info(f"[TOOL]: {entry.get('name')}({str(entry.get('input'))[:50]}...)")
+                log.info(f"[TOOL {entry.get('name')}]:\n{json.dumps(entry.get('input', {}), ensure_ascii=False, indent=2)}\n")
+            elif t == "tool_result":
+                log.info(f"[RESULT {entry.get('name')}]:\n{entry.get('output', '')}\n")
             elif t == "error":
-                 log.info(f"[ERROR]: {entry.get('message')}")
+                log.info(f"[ERROR]: {entry.get('message')}")
         log.info("--- TRANSCRIPT END ---")
 
     if ex.status == "success":
@@ -102,10 +103,31 @@ def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1
     else:
         score, breakdown, notes = 0.0, {}, f"failed: {ex.status}"
         if ex.stderr:
-             log.error(f"Container stderr: {ex.stderr[:500]}")
+            log.error(f"Container stderr: {ex.stderr[:500]}")
+
+    result = {
+        "task_id": task.id, "task_name": task.name,
+        "score": round(score, 4), "status": ex.status,
+        "duration": ex.duration, "cost_usd": ex.usage.get("cost", 0),
+        "breakdown": breakdown, "notes": notes, "stderr": ex.stderr,
+    }
+
+    if output_dir:
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        # Full transcript JSONL
+        tr_path = out / f"{task.id}.jsonl"
+        with tr_path.open("w", encoding="utf-8") as f:
+            for entry in ex.transcript:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        # Task result JSON
+        (out / f"{task.id}.result.json").write_text(
+            json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        log.info(f"  Saved: {tr_path}")
 
     cleanup_agent_sessions(agent_id)
-    return {"task_id": task.id, "score": round(score, 4), "status": ex.status, "stderr": ex.stderr}
+    return result
 
 def main():
     p = argparse.ArgumentParser()
@@ -120,6 +142,10 @@ def main():
                     help="Fast judge: direct OpenRouter API call with this model "
                          "(e.g. anthropic/claude-haiku-4-5-20251001). "
                          "Without this flag, original PinchBench judge path is used (claude-opus via Docker).")
+    p.add_argument("--output-dir", default=None,
+                    help="Directory to save full transcripts and results")
+    p.add_argument("--proxy-url", default=None,
+                    help="SOCKS/HTTP proxy URL to pass to the agent (e.g. socks5://user:pass@ip:port)")
     args = p.parse_args()
 
     if not os.environ.get("OPENROUTER_API_KEY"): sys.exit("ERROR: OPENROUTER_API_KEY not set")
@@ -130,15 +156,26 @@ def main():
     agent_id = ensure_agent_exists(args.model, None)
     ws_root = tempfile.mkdtemp(prefix="ouro_bench_")
 
+    all_results = []
+
     log.info(f"Starting benchmark for {len(tasks)} tasks...")
     for i, task in enumerate(tasks, 1):
         log.info(f"[{i}/{len(tasks)}] {task.id}")
         res = run_task(task, agent_id, args.model, ws_root,
                        verbose=args.verbose, timeout_multiplier=args.timeout_multiplier,
-                       judge_model=args.judge_model)
+                       judge_model=args.judge_model, output_dir=args.output_dir, proxy_url=args.proxy_url)
+        all_results.append(res)
         log.info(f"  Score: {res['score']:.2f}  Status: {res['status']}")
         if res['status'] != 'success':
             log.error(f"  STDERR: {res['stderr'][:500]}")
+
+    if args.output_dir:
+        out = Path(args.output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "results.json").write_text(
+            json.dumps(all_results, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        log.info(f"Saved aggregated results to {out / 'results.json'}")
 
 if __name__ == "__main__":
     main()

@@ -79,6 +79,7 @@ def execute_ouroboros_task(
     timeout: int,
     model_name: Optional[str] = None,
     workspace_path: Optional[str] = None,
+    proxy_url: Optional[str] = None,
 ) -> ExecutionResult:
     start = time.time()
     transcript_dir  = tempfile.mkdtemp(prefix="ouro_transcript_")
@@ -93,17 +94,27 @@ def execute_ouroboros_task(
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
 
     container_name = f"ouro-bench-{uuid.uuid4().hex[:8]}"
-    cmd = [
-        "docker", "run", "--rm",
-        "--name", container_name,
-        "-v", f"{ws.resolve()}:/workspace",
-        "-v", f"{transcript_dir}:/transcripts",
+    
+    env_vars = [
         "-e", f"OPENROUTER_API_KEY={api_key}",
         "-e", f"OUROBOROS_MODEL={model_name}",
         "-e", f"OUROBOROS_MODEL_CODE={model_name}",
         "-e", "OUROBOROS_BENCH_MODE=1",
         "-e", "OUROBOROS_EVOLUTION_ENABLED=0",
         "-e", "OUROBOROS_CONSCIOUSNESS_ENABLED=0",
+    ]
+    
+    # Check if proxy_url is passed or if it exists in the environment
+    actual_proxy = proxy_url or os.environ.get("OUROBOROS_PROXY_URL")
+    if actual_proxy:
+        env_vars.extend(["-e", f"OUROBOROS_PROXY_URL={actual_proxy}"])
+
+    cmd = [
+        "docker", "run", "--rm",
+        "--name", container_name,
+        "-v", f"{ws.resolve()}:/workspace",
+        "-v", f"{transcript_dir}:/transcripts",
+    ] + env_vars + [
         "--network", "bridge",
         f"{BENCH_IMAGE_NAME}:{BENCH_IMAGE_TAG}",
         "--prompt",         prompt,
