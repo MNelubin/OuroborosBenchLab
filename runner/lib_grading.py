@@ -271,8 +271,7 @@ def _grade_llm_judge(
         # Fast path: direct OpenRouter API call (no Docker container)
         logger.info("   [JUDGE] Fast mode — calling %s directly via OpenRouter", fast_judge_model)
         raw_text = _call_judge_llm(prompt, fast_judge_model, judge_timeout_seconds)
-        if verbose:
-            logger.info("   [VERBOSE] Judge raw text: %s", raw_text[:500])
+        logger.info("   [JUDGE] Raw response (%d chars): %s", len(raw_text), raw_text[:800])
         raw_parsed = _parse_judge_text(raw_text)
     else:
         # Original PinchBench path: run judge via Ouroboros Docker (claude-opus by default)
@@ -285,12 +284,14 @@ def _grade_llm_judge(
             timeout_seconds=judge_timeout_seconds,
         )
         if isinstance(judge_result, str):
+            logger.info("   [JUDGE] Raw response (%d chars): %s", len(judge_result), judge_result[:800])
             raw_parsed = _parse_judge_text(judge_result)
         else:
             raw_parsed = _parse_judge_response(judge_result.get("transcript", []))
 
-    if verbose:
-        logger.info("   [VERBOSE] Judge parsed: %s", raw_parsed)
+    if not raw_parsed:
+        logger.warning("   [JUDGE] Parse returned empty — score will be 0. Check raw response above.")
+    logger.info("   [JUDGE] Parsed: %s", raw_parsed)
 
     parsed = _normalize_judge_response(raw_parsed)
     breakdown = parsed.get("scores", {})
