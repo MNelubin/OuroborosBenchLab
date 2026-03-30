@@ -284,7 +284,10 @@ def _grade_llm_judge(
             workspace=judge_workspace,
             timeout_seconds=judge_timeout_seconds,
         )
-        raw_parsed = _parse_judge_response(judge_result.get("transcript", []))
+        if isinstance(judge_result, str):
+            raw_parsed = _parse_judge_text(judge_result)
+        else:
+            raw_parsed = _parse_judge_response(judge_result.get("transcript", []))
 
     if verbose:
         logger.info("   [VERBOSE] Judge parsed: %s", raw_parsed)
