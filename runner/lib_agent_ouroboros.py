@@ -229,6 +229,8 @@ def run_ouroboros_prompt(agent_id, prompt, model_name=None, timeout=180,
             model_name=model_name, workspace_path=tmpdir,
         )
         for e in reversed(r.transcript):
-            if e.get("type") == "message" and e.get("role") == "assistant":
-                return e.get("content", "")
+            if e.get("type") == "message":
+                msg = e.get("message", {})
+                if msg.get("role") == "assistant":
+                    return msg.get("content", "")
     return ""
