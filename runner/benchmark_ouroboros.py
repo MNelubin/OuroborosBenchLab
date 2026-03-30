@@ -55,7 +55,7 @@ def load_tasks(tasks_dir, suite="all", task_ids=None):
         tasks.append(t)
     return tasks
 
-def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1.0):
+def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1.0, judge_model=None):
     ws = Path(ws_root) / task.id
     prepare_task_workspace(task, str(ws))
 
@@ -86,11 +86,10 @@ def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1
 
     if ex.status == "success":
         try:
-            gr = grade_task(
-                task=task,
-                execution_result={**vars(ex), "workspace": str(ws)},
-                skill_dir=ws,
-            )
+            grade_kwargs = {"task": task, "execution_result": {**vars(ex), "workspace": str(ws)}, "skill_dir": ws}
+            if judge_model:
+                grade_kwargs["fast_judge_model"] = judge_model
+            gr = grade_task(**grade_kwargs)
             score = gr.score / max(gr.max_score, 1)
             breakdown, notes = gr.breakdown, gr.notes
             if verbose:
@@ -117,6 +116,10 @@ def main():
     p.add_argument("--verbose", action="store_true", help="Show prompts and transcripts")
     p.add_argument("--timeout-multiplier", type=float, default=1.0,
                     help="Scale all task timeouts (e.g. 2.0 for slow free-tier models)")
+    p.add_argument("--judge-model", default=None,
+                    help="Fast judge: direct OpenRouter API call with this model "
+                         "(e.g. anthropic/claude-haiku-4-5-20251001). "
+                         "Without this flag, original PinchBench judge path is used (claude-opus via Docker).")
     args = p.parse_args()
 
     if not os.environ.get("OPENROUTER_API_KEY"): sys.exit("ERROR: OPENROUTER_API_KEY not set")
@@ -131,7 +134,8 @@ def main():
     for i, task in enumerate(tasks, 1):
         log.info(f"[{i}/{len(tasks)}] {task.id}")
         res = run_task(task, agent_id, args.model, ws_root,
-                       verbose=args.verbose, timeout_multiplier=args.timeout_multiplier)
+                       verbose=args.verbose, timeout_multiplier=args.timeout_multiplier,
+                       judge_model=args.judge_model)
         log.info(f"  Score: {res['score']:.2f}  Status: {res['status']}")
         if res['status'] != 'success':
             log.error(f"  STDERR: {res['stderr'][:500]}")

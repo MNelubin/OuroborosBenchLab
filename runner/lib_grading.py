@@ -6,10 +6,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import urllib.request
+import urllib.error
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from lib_agent import ensure_agent_exists, run_openclaw_prompt, slugify_model
 from lib_tasks import Task
@@ -51,6 +54,7 @@ def grade_task(
     judge_model: str = DEFAULT_JUDGE_MODEL,
     judge_agent_prefix: str = DEFAULT_JUDGE_AGENT_PREFIX,
     judge_timeout_seconds: float = DEFAULT_JUDGE_TIMEOUT_SECONDS,
+    fast_judge_model: Optional[str] = None,
     verbose: bool = False,
 ) -> GradeResult:
     grading_type = task.grading_type
@@ -71,6 +75,7 @@ def grade_task(
             judge_agent_prefix=judge_agent_prefix,
             judge_timeout_seconds=judge_timeout_seconds,
             skill_dir=skill_dir,
+            fast_judge_model=fast_judge_model,
             verbose=verbose,
         )
         if verbose:
@@ -85,6 +90,7 @@ def grade_task(
             judge_agent_prefix=judge_agent_prefix,
             judge_timeout_seconds=judge_timeout_seconds,
             skill_dir=skill_dir,
+            fast_judge_model=fast_judge_model,
             verbose=verbose,
         )
         return _combine_grades(task, auto_result, llm_result)
@@ -187,6 +193,41 @@ def _grade_automated(task: Task, execution_result: Dict[str, Any], verbose: bool
     )
 
 
+def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
+    """Direct OpenRouter API call for judge — no Docker container needed."""
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        logger.warning("OPENROUTER_API_KEY not set — judge returns empty response")
+        return ""
+
+    # Strip "openrouter/" prefix if present (OpenRouter API expects just the model ID)
+    clean_model = model.removeprefix("openrouter/")
+
+    payload = json.dumps({
+        "model": clean_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "max_tokens": 512,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error("Judge LLM call failed: %s", e)
+        return ""
+
+
 def _grade_llm_judge(
     *,
     task: Task,
@@ -195,6 +236,7 @@ def _grade_llm_judge(
     judge_agent_prefix: str,
     judge_timeout_seconds: float,
     skill_dir: Path,
+    fast_judge_model: Optional[str] = None,
     verbose: bool = False,
 ) -> GradeResult:
     transcript_summary = _summarize_transcript(execution_result.get("transcript", []))
@@ -203,24 +245,29 @@ def _grade_llm_judge(
     rubric = task.llm_judge_rubric or _format_grading_criteria(task)
     prompt = _build_judge_prompt(task, transcript_summary, rubric)
 
-    agent_id = _ensure_judge_agent(judge_agent_prefix, judge_model, skill_dir)
-    judge_workspace = Path(f"/tmp/pinchbench/judge/{task.task_id}")
-    judge_result = run_openclaw_prompt(
-        agent_id=agent_id,
-        prompt=prompt,
-        workspace=judge_workspace,
-        timeout_seconds=judge_timeout_seconds,
-    )
+    if fast_judge_model:
+        # Fast path: direct OpenRouter API call (no Docker container)
+        logger.info("   [JUDGE] Fast mode — calling %s directly via OpenRouter", fast_judge_model)
+        raw_text = _call_judge_llm(prompt, fast_judge_model, judge_timeout_seconds)
+        if verbose:
+            logger.info("   [VERBOSE] Judge raw text: %s", raw_text[:500])
+        raw_parsed = _parse_judge_text(raw_text)
+    else:
+        # Original PinchBench path: run judge via Ouroboros Docker (claude-opus by default)
+        agent_id = _ensure_judge_agent(judge_agent_prefix, judge_model, skill_dir)
+        judge_workspace = Path(f"/tmp/pinchbench/judge/{task.task_id}")
+        judge_result = run_openclaw_prompt(
+            agent_id=agent_id,
+            prompt=prompt,
+            workspace=judge_workspace,
+            timeout_seconds=judge_timeout_seconds,
+        )
+        raw_parsed = _parse_judge_response(judge_result.get("transcript", []))
 
-    raw_parsed = _parse_judge_response(judge_result.get("transcript", []))
     if verbose:
-        logger.info("   [VERBOSE] Judge raw response parsed: %s", raw_parsed)
-    
-    # Normalize the response to handle various formats (criteria_scores, score, justification, etc.)
+        logger.info("   [VERBOSE] Judge parsed: %s", raw_parsed)
+
     parsed = _normalize_judge_response(raw_parsed)
-    if verbose:
-        logger.info("   [VERBOSE] Normalized judge response: %s", parsed)
-    
     breakdown = parsed.get("scores", {})
     total = parsed.get("total")
     notes = parsed.get("notes", "")
@@ -357,6 +404,7 @@ def _ensure_judge_agent(judge_agent_prefix: str, judge_model: str, skill_dir: Pa
 
 
 def _parse_judge_response(transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Extract assistant text from a transcript and parse JSON from it."""
     content_chunks: List[str] = []
     for event in transcript:
         if event.get("type") != "message":
@@ -373,7 +421,12 @@ def _parse_judge_response(transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
                     content_chunks.append(item.get("text", ""))
                 elif isinstance(item, str):
                     content_chunks.append(item)
-    raw_text = "\n".join(content_chunks).strip()
+    return _parse_judge_text("\n".join(content_chunks))
+
+
+def _parse_judge_text(raw_text: str) -> Dict[str, Any]:
+    """Parse a raw judge LLM response string into a structured dict."""
+    raw_text = raw_text.strip()
     if not raw_text:
         return {}
 
