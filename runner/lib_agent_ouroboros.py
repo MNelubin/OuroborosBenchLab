@@ -125,7 +125,11 @@ def execute_ouroboros_task(
         exit_code = -1
         stderr    = "Container timeout"
         timed_out = True
-        subprocess.run(["docker", "stop", container_name], capture_output=True, timeout=10)
+        # kill immediately — stop may hang if container ignores SIGTERM
+        try:
+            subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=15)
+        except Exception:
+            pass
 
     duration   = round(time.time() - start, 2)
     transcript = _read_transcript(transcript_path)

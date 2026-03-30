@@ -55,19 +55,18 @@ def load_tasks(tasks_dir, suite="all", task_ids=None):
         tasks.append(t)
     return tasks
 
-def run_task(task, agent_id, model, ws_root, verbose=False):
+def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1.0):
     ws = Path(ws_root) / task.id
     prepare_task_workspace(task, str(ws))
-    
+
     if verbose:
         log.info(f"--- PROMPT START ---\n{task.prompt}\n--- PROMPT END ---")
-        # Выводим что именно передали в грейдер
         log.info(f"--- RAW GRADING DATA (len={len(task.automated_checks)}) ---")
-        # Показываем первые 200 символов, чтобы убедиться что там есть разметка
-        log.info(f"{task.automated_checks[:300]}...") 
+        log.info(f"{task.automated_checks[:300]}...")
 
+    effective_timeout = max(int(task.timeout * timeout_multiplier), task.timeout)
     ex = execute_ouroboros_task(
-        agent_id=agent_id, prompt=task.prompt, timeout=task.timeout,
+        agent_id=agent_id, prompt=task.prompt, timeout=effective_timeout,
         model_name=model, workspace_path=str(ws)
     )
     
@@ -116,20 +115,23 @@ def main():
     p.add_argument("--suite", default="automated-only")
     p.add_argument("--task-ids", nargs="+")
     p.add_argument("--verbose", action="store_true", help="Show prompts and transcripts")
+    p.add_argument("--timeout-multiplier", type=float, default=1.0,
+                    help="Scale all task timeouts (e.g. 2.0 for slow free-tier models)")
     args = p.parse_args()
 
     if not os.environ.get("OPENROUTER_API_KEY"): sys.exit("ERROR: OPENROUTER_API_KEY not set")
-    
+
     tasks = load_tasks(args.tasks_dir, args.suite, args.task_ids)
     if not tasks: sys.exit("No tasks loaded")
-    
+
     agent_id = ensure_agent_exists(args.model, None)
     ws_root = tempfile.mkdtemp(prefix="ouro_bench_")
-    
+
     log.info(f"Starting benchmark for {len(tasks)} tasks...")
     for i, task in enumerate(tasks, 1):
         log.info(f"[{i}/{len(tasks)}] {task.id}")
-        res = run_task(task, agent_id, args.model, ws_root, verbose=args.verbose)
+        res = run_task(task, agent_id, args.model, ws_root,
+                       verbose=args.verbose, timeout_multiplier=args.timeout_multiplier)
         log.info(f"  Score: {res['score']:.2f}  Status: {res['status']}")
         if res['status'] != 'success':
             log.error(f"  STDERR: {res['stderr'][:500]}")
