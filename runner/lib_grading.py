@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
@@ -219,17 +220,29 @@ def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data["choices"][0]["message"]["content"]
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")[:500]
-        logger.error("Judge LLM HTTP %s for model=%s: %s", e.code, clean_model, body)
-        return ""
-    except Exception as e:
-        logger.error("Judge LLM call failed (model=%s): %s", clean_model, e)
-        return ""
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                return data["choices"][0]["message"]["content"]
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")[:500]
+            if e.code == 429:
+                # Respect Retry-After or use exponential backoff
+                retry_after = int(e.headers.get("Retry-After", 0))
+                wait = retry_after if retry_after > 0 else min(2 ** attempt * 5, 60)
+                logger.warning("Judge rate-limited (429), retry %d/%d in %ds — model=%s",
+                               attempt + 1, max_retries, wait, clean_model)
+                time.sleep(wait)
+                continue
+            logger.error("Judge LLM HTTP %s for model=%s: %s", e.code, clean_model, body)
+            return ""
+        except Exception as e:
+            logger.error("Judge LLM call failed (model=%s): %s", clean_model, e)
+            return ""
+    logger.error("Judge LLM gave up after %d retries (model=%s)", max_retries, clean_model)
+    return ""
 
 
 def _grade_llm_judge(
