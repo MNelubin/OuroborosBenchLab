@@ -93,8 +93,7 @@ def run_task(task, agent_id, model, ws_root, verbose=False, timeout_multiplier=1
             gr = grade_task(**grade_kwargs)
             score = gr.score / max(gr.max_score, 1)
             breakdown, notes = gr.breakdown, gr.notes
-            if verbose:
-                log.info(f"GRADER RESULT: score={score:.2f} breakdown={breakdown} notes={notes}")
+            log.info(f"GRADER RESULT: score={score:.2f} breakdown={breakdown} notes={notes}")
         except Exception as e:
             log.error(f"Grading failed for {task.id}: {e}")
             import traceback
@@ -181,6 +180,36 @@ def main():
             json.dumps(all_results, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         log.info(f"Saved aggregated results to {out / 'results.json'}")
+
+    # ── Final summary table ──────────────────────────────────────────────────
+    scores     = [r["score"] for r in all_results]
+    costs      = [r["cost_usd"] for r in all_results]
+    durations  = [r["duration"] for r in all_results]
+    passed     = sum(1 for r in all_results if r["score"] >= 0.5)
+
+    col_id    = max(len(r["task_id"])   for r in all_results)
+    col_name  = max(len(r["task_name"]) for r in all_results)
+    col_id    = max(col_id, 7)
+    col_name  = max(col_name, 4)
+
+    sep = f"{'─' * (col_id + col_name + 46)}"
+    print(f"\n{'═' * (col_id + col_name + 46)}")
+    print(f"  BENCHMARK SUMMARY   model={args.model}")
+    print(sep)
+    header = f"  {'Task ID':<{col_id}}  {'Name':<{col_name}}  {'Score':>5}  {'Status':<9}  {'Cost':>8}  {'Time':>6}"
+    print(header)
+    print(sep)
+    for r in all_results:
+        icon  = "✓" if r["score"] >= 0.5 else "✗"
+        cost_s = f"${r['cost_usd']:.4f}"
+        time_s = f"{r['duration']:.0f}s"
+        print(f"  {r['task_id']:<{col_id}}  {r['task_name']:<{col_name}}  {r['score']:>5.2f}  {r['status']:<9}  {cost_s:>8}  {time_s:>6}  {icon}")
+    print(sep)
+    avg_score = mean(scores) if scores else 0.0
+    total_cost = sum(costs)
+    total_time = sum(durations)
+    print(f"  {'TOTAL / AVG':<{col_id + col_name + 2}}  {avg_score:>5.2f}  {str(passed)+'/'+str(len(all_results)):<9}  ${total_cost:>7.4f}  {total_time:.0f}s")
+    print(f"{'═' * (col_id + col_name + 46)}\n")
 
 if __name__ == "__main__":
     main()

@@ -291,7 +291,6 @@ def _grade_llm_judge(
 
     if not raw_parsed:
         logger.warning("   [JUDGE] Parse returned empty — score will be 0. Check raw response above.")
-    logger.info("   [JUDGE] Parsed: %s", raw_parsed)
 
     parsed = _normalize_judge_response(raw_parsed)
     breakdown = parsed.get("scores", {})
