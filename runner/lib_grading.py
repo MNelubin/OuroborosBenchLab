@@ -223,8 +223,12 @@ def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
         with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:500]
+        logger.error("Judge LLM HTTP %s for model=%s: %s", e.code, clean_model, body)
+        return ""
     except Exception as e:
-        logger.error("Judge LLM call failed: %s", e)
+        logger.error("Judge LLM call failed (model=%s): %s", clean_model, e)
         return ""
 
 
@@ -398,8 +402,7 @@ def _build_judge_prompt(task: Task, transcript_summary: str, rubric: str) -> str
 def _ensure_judge_agent(judge_agent_prefix: str, judge_model: str, skill_dir: Path) -> str:
     model_slug = slugify_model(judge_model)
     agent_id = f"{judge_agent_prefix}-{model_slug}"
-    workspace = Path("/tmp/pinchbench/judge/workspace")
-    ensure_agent_exists(agent_id, judge_model, workspace)
+    ensure_agent_exists(judge_model)  # verifies Docker image exists; returns agent_id
     return agent_id
 
 
