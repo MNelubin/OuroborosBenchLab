@@ -12,6 +12,10 @@ class Task:
     workspace_files: List[Dict[str, Any]] = field(default_factory=list)
     automated_checks: str = ""
     judge_rubric: str = ""
+    llm_judge_rubric: str = ""
+    expected_behavior: str = ""
+    grading_weights: Dict[str, float] = field(default_factory=dict)
+    grading_criteria: List[str] = field(default_factory=list)
     difficulty: str = "medium"
 
     @property
@@ -26,4 +30,4 @@ class Task:
 
     @property
     def is_openclaw_specific(self):
-        return self.id in {"task_11_clawdhub", "task_12_skill_search", "task_21_openclaw_comprehension"}
+        return self.id in {"task_11_clawdhub", "task_21_openclaw_comprehension"}

@@ -243,27 +243,32 @@ def _format_grading_criteria(task: Task) -> str:
 
 
 def _summarize_transcript(transcript: List[Dict[str, Any]]) -> str:
+    """Summarize Ouroboros JSONL transcript (type: message/tool_use/tool_result/done)."""
     summary_parts: List[str] = []
     for event in transcript:
-        if event.get("type") != "message":
-            continue
-        msg = event.get("message", {})
-        role = msg.get("role")
-        if role == "assistant":
-            for item in msg.get("content", []):
-                if item.get("type") == "toolCall":
-                    summary_parts.append(
-                        f"Tool: {item.get('name')}({json.dumps(item.get('arguments', {}))})"
-                    )
-        elif role == "toolResult":
-            content = msg.get("content", [])
-            if content:
-                result_preview = str(content[0])[:200]
-                summary_parts.append(f"Result: {result_preview}")
-        elif role == "user":
-            content = msg.get("content", [])
-            if content:
-                summary_parts.append(f"User: {content[0]}")
+        t = event.get("type")
+        if t == "message":
+            msg = event.get("message", event)
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(
+                    item.get("text", str(item)) if isinstance(item, dict) else str(item)
+                    for item in content
+                )
+            content = str(content)
+            if role == "user":
+                summary_parts.append(f"User: {content[:300]}")
+            elif role == "assistant":
+                summary_parts.append(f"Assistant: {content[:500]}")
+        elif t == "tool_use":
+            name = event.get("name", "unknown")
+            inp = json.dumps(event.get("input", {}))[:150]
+            summary_parts.append(f"Tool call: {name}({inp})")
+        elif t == "tool_result":
+            name = event.get("name", "unknown")
+            out = str(event.get("output", ""))[:200]
+            summary_parts.append(f"Tool result [{name}]: {out}")
     return "\n".join(summary_parts)
 
 
@@ -306,12 +311,18 @@ def _parse_judge_response(transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
     for event in transcript:
         if event.get("type") != "message":
             continue
-        msg = event.get("message", {})
+        msg = event.get("message", event)
         if msg.get("role") != "assistant":
             continue
-        for item in msg.get("content", []):
-            if item.get("type") == "text":
-                content_chunks.append(item.get("text", ""))
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            content_chunks.append(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and item.get("type") == "text":
+                    content_chunks.append(item.get("text", ""))
+                elif isinstance(item, str):
+                    content_chunks.append(item)
     raw_text = "\n".join(content_chunks).strip()
     if not raw_text:
         return {}

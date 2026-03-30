@@ -49,7 +49,12 @@ def _slugify(s: str) -> str:
 def prepare_task_workspace(task, workspace_path: str):
     ws = Path(workspace_path)
     ws.mkdir(parents=True, exist_ok=True)
-    assets_dir = Path(__file__).parent / "assets"
+    # Look for binary assets in runner/assets/, fall back to pinchbench/assets/
+    runner_dir = Path(__file__).parent
+    assets_candidates = [
+        runner_dir / "assets",
+        runner_dir.parent / "pinchbench" / "assets",
+    ]
     for wf in getattr(task, "workspace_files", []):
         if "path" in wf and "content" in wf:
             t = ws / wf["path"]
@@ -57,11 +62,15 @@ def prepare_task_workspace(task, workspace_path: str):
             t.write_text(wf["content"], encoding="utf-8")
         elif "source" in wf and "dest" in wf:
             import shutil
-            src  = assets_dir / wf["source"]
             dest = ws / wf["dest"]
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if src.exists():
-                shutil.copy2(src, dest)
+            for assets_dir in assets_candidates:
+                src = assets_dir / wf["source"]
+                if src.exists():
+                    shutil.copy2(src, dest)
+                    break
+            else:
+                log.warning(f"Asset not found: {wf['source']} (searched {assets_candidates})")
 
 
 def execute_ouroboros_task(

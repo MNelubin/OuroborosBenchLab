@@ -24,24 +24,29 @@ def load_tasks(tasks_dir, suite="all", task_ids=None):
             m = re.search(rf"##\s+{re.escape(title)}\s*\n(.*?)(?=\n##\s|\Z)", body, re.DOTALL)
             return m.group(1).strip() if m else ""
 
-        wf_code = re.search(r"```yaml\n(.*?)```", get_sec("Workspace Files"), re.DOTALL)
-        workspace_files = yaml.safe_load(wf_code.group(1)) if wf_code else []
+        # workspace_files are in YAML frontmatter, not a body section
+        workspace_files = meta.get("workspace_files") or []
 
-        # ИСПРАВЛЕНО: Сохраняем ВСЮ секцию целиком (сырой текст с разметкой),
-        # потому что lib_grading.py сам ищет внутри ```python ... ```
+        # lib_grading.py extracts ```python ... ``` from the raw section text
         grade_body = get_sec("Automated Checks") or get_sec("Grading Function")
-        
+        judge_rubric = get_sec("Judge Rubric") or get_sec("Rubric")
+        expected_behavior = get_sec("Expected Behavior")
+
         prompt = get_sec("Prompt")
 
         t = Task(
-            id=meta.get("id", f.stem), 
-            name=meta.get("name", f.stem), 
+            id=meta.get("id", f.stem),
+            name=meta.get("name", f.stem),
             category=meta.get("category", "general"),
-            grading_type=meta.get("grading_type", "automated"), 
-            timeout=int(meta.get("timeout", 120)), 
+            grading_type=meta.get("grading_type", "automated"),
+            timeout=int(meta.get("timeout_seconds", meta.get("timeout", 120))),
             prompt=prompt,
-            workspace_files=workspace_files or [], 
-            automated_checks=grade_body  # Передаем сырой текст
+            workspace_files=workspace_files,
+            automated_checks=grade_body,
+            judge_rubric=judge_rubric,
+            llm_judge_rubric=judge_rubric,
+            expected_behavior=expected_behavior,
+            grading_weights=meta.get("grading_weights") or {},
         )
         
         if t.is_openclaw_specific: continue
@@ -83,9 +88,9 @@ def run_task(task, agent_id, model, ws_root, verbose=False):
     if ex.status == "success":
         try:
             gr = grade_task(
-                task=task, 
-                execution_result=vars(ex), 
-                skill_dir=ws
+                task=task,
+                execution_result={**vars(ex), "workspace": str(ws)},
+                skill_dir=ws,
             )
             score = gr.score / max(gr.max_score, 1)
             breakdown, notes = gr.breakdown, gr.notes
