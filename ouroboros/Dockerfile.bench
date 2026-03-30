@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir \
+    openai anthropic httpx aiofiles pyyaml python-dotenv \
+    && pip install --no-cache-dir -r requirements.txt || true
+
+COPY VERSION ./VERSION
+
+COPY ouroboros/ ./ouroboros/
+COPY ouroboros/bench_cli.py ./bench_cli.py
+
+RUN mkdir -p /workspace /transcripts
+
+ENV OUROBOROS_BENCH_MODE=1 \
+    OUROBOROS_EVOLUTION_ENABLED=0 \
+    OUROBOROS_CONSCIOUSNESS_ENABLED=0 \
+    OUROBOROS_MAX_ROUNDS=50 \
+    PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "bench_cli.py"]
+CMD ["--help"]
