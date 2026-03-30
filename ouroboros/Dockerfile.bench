@@ -29,9 +29,13 @@ COPY ouroboros/bench_cli.py ./bench_cli.py
 RUN mkdir -p /workspace /transcripts \
     /drive/state /drive/logs /drive/memory /drive/index /drive/locks /drive/archive
 
+# --- Set git identity globally (avoids startup auto-rescue commit failures) ---
+RUN git config --global user.email "bench@bench" && \
+    git config --global user.name "bench"
+
 # --- Init git repo in /app so git tools don't crash ---
 RUN cd /app && git init && git add -A && \
-    git -c user.name="bench" -c user.email="bench@bench" commit -m "bench" --allow-empty 2>/dev/null || true
+    git commit -m "bench" --allow-empty 2>/dev/null || true
 
 ENV OUROBOROS_BENCH_MODE=1 \
     OUROBOROS_EVOLUTION_ENABLED=0 \

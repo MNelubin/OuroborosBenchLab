@@ -71,23 +71,47 @@ async def run_bench_task(prompt, workspace, model, timeout, transcript_out,
         os.environ["OUROBOROS_EVOLUTION_ENABLED"] = "0"
         os.environ["OUROBOROS_CONSCIOUSNESS_ENABLED"] = "0"
 
+        # --- Bootstrap drive structure before agent init ---
+        # (OuroborosAgent constructor runs startup verification which reads state.json)
+        drive_root_path = pathlib.Path(drive_root)
+        for sub in ("state", "logs", "memory", "index", "locks", "archive"):
+            (drive_root_path / sub).mkdir(parents=True, exist_ok=True)
+        state_path = drive_root_path / "state" / "state.json"
+        if not state_path.exists():
+            state_path.write_text(json.dumps({
+                "spent_usd": 0, "total_budget": 0,
+                "current_branch": "bench", "current_sha": "bench",
+            }), encoding="utf-8")
+
         # --- Create Agent with proper Env (mirrors Colab layout) ---
         from ouroboros.agent import OuroborosAgent, Env
 
         env = Env(
             repo_dir=pathlib.Path(repo_dir),
-            drive_root=pathlib.Path(drive_root),
+            drive_root=drive_root_path,
             branch_dev="bench",
         )
         agent = OuroborosAgent(env=env)
 
-        # Log user prompt first
+        # --- Augment prompt with workspace context ---
+        # Agent tools default to repo_dir (/app); workspace files are at /workspace.
+        # Shell tool accepts absolute paths, so we tell the agent where to look.
+        augmented_prompt = (
+            f"[Bench workspace: {workspace}]\n"
+            f"Task files are in {workspace}/. Access them with absolute paths, e.g.:\n"
+            f'  run_shell(["cat", "{workspace}/filename.txt"])\n'
+            f'  run_shell(["bash", "-c", "echo result > {workspace}/output.txt"])\n'
+            f"\n"
+            f"{prompt}"
+        )
+
+        # Log user prompt first (original, not augmented — for grading clarity)
         logger.log_user(prompt)
 
         # Run agent with full context (SYSTEM.md + BIBLE.md + identity + tools)
         try:
             result = await asyncio.wait_for(
-                agent.run_bench(task=prompt, logger=logger, workspace=workspace),
+                agent.run_bench(task=augmented_prompt, logger=logger, workspace=workspace),
                 timeout=timeout,
             )
             logger.log_done("task_complete")
