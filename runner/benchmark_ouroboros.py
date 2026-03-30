@@ -151,6 +151,10 @@ def main():
     if not os.environ.get("OPENROUTER_API_KEY"): sys.exit("ERROR: OPENROUTER_API_KEY not set")
     if not os.environ.get("OPENAI_API_KEY"): sys.exit("ERROR: OPENAI_API_KEY not set (required for web_search tool)")
 
+    # Propagate proxy to env so host-side judge calls (lib_grading._call_judge_llm) pick it up
+    if args.proxy_url:
+        os.environ["OUROBOROS_PROXY_URL"] = args.proxy_url
+
     tasks = load_tasks(args.tasks_dir, args.suite, args.task_ids)
     if not tasks: sys.exit("No tasks loaded")
 

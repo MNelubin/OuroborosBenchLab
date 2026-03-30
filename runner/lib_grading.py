@@ -211,33 +211,38 @@ def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
         "max_tokens": 512,
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    proxy_url = os.environ.get("OUROBOROS_PROXY_URL", "")
     max_retries = 5
     for attempt in range(max_retries):
         try:
-            with urllib.request.urlopen(req, timeout=int(timeout)) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data["choices"][0]["message"]["content"]
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")[:500]
-            if e.code == 429:
-                # Respect Retry-After or use exponential backoff
-                retry_after = int(e.headers.get("Retry-After", 0))
+            import httpx
+            client_kwargs = {"timeout": int(timeout)}
+            if proxy_url:
+                client_kwargs["proxy"] = proxy_url
+            with httpx.Client(**client_kwargs) as client:
+                resp = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    content=payload,
+                    headers=headers,
+                )
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 0))
                 wait = retry_after if retry_after > 0 else min(2 ** attempt * 5, 60)
                 logger.warning("Judge rate-limited (429), retry %d/%d in %ds — model=%s",
                                attempt + 1, max_retries, wait, clean_model)
                 time.sleep(wait)
                 continue
-            logger.error("Judge LLM HTTP %s for model=%s: %s", e.code, clean_model, body)
-            return ""
+            if resp.status_code != 200:
+                logger.error("Judge LLM HTTP %s for model=%s: %s",
+                             resp.status_code, clean_model, resp.text[:500])
+                return ""
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error("Judge LLM call failed (model=%s): %s", clean_model, e)
             return ""

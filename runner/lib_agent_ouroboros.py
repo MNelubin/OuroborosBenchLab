@@ -215,10 +215,14 @@ def cleanup_agent_sessions(agent_id: str, workspace_path=None):
         pass
 
 
-def run_ouroboros_prompt(agent_id, prompt, model_name, timeout=180) -> str:
+def run_ouroboros_prompt(agent_id, prompt, model_name, timeout=180,
+                         workspace=None, timeout_seconds=None, **kwargs) -> str:
+    # workspace is ignored (Ouroboros creates its own temp dir)
+    # timeout_seconds is the PinchBench name for the same concept
+    effective_timeout = timeout_seconds if timeout_seconds is not None else timeout
     with tempfile.TemporaryDirectory() as tmpdir:
         r = execute_ouroboros_task(
-            agent_id=agent_id, prompt=prompt, timeout=timeout,
+            agent_id=agent_id, prompt=prompt, timeout=effective_timeout,
             model_name=model_name, workspace_path=tmpdir,
         )
         for e in reversed(r.transcript):
