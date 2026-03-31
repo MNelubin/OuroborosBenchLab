@@ -223,11 +223,12 @@ def run_ouroboros_prompt(agent_id, prompt, model_name=None, timeout=180,
     if model_name is None:
         model_name = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4-6")
     effective_timeout = timeout_seconds if timeout_seconds is not None else timeout
-    log.info("   [JUDGE-DOCKER] Requesting model: %s", model_name)
+    proxy_url = os.environ.get("OUROBOROS_PROXY_URL", "") or None
+    log.info("   [JUDGE-DOCKER] Requesting model: %s (proxy: %s)", model_name, "yes" if proxy_url else "no")
     with tempfile.TemporaryDirectory() as tmpdir:
         r = execute_ouroboros_task(
             agent_id=agent_id, prompt=prompt, timeout=effective_timeout,
-            model_name=model_name, workspace_path=tmpdir,
+            model_name=model_name, workspace_path=tmpdir, proxy_url=proxy_url,
         )
         # Surface [LLM] model lines from inside the container
         if r.stderr:
