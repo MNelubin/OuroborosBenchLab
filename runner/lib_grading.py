@@ -280,6 +280,7 @@ def _grade_llm_judge(
         judge_result = run_openclaw_prompt(
             agent_id=agent_id,
             prompt=prompt,
+            model_name=judge_model,
             workspace=judge_workspace,
             timeout_seconds=judge_timeout_seconds,
         )
