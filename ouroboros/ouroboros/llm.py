@@ -206,7 +206,13 @@ class LLMClient:
         resp_dict = resp.model_dump()
         actual_model = resp_dict.get("model") or ""
         if actual_model and actual_model != model:
-            log.warning("[LLM] OpenRouter used a DIFFERENT model: requested=%s actual=%s", model, actual_model)
+            # Check if it's just a name normalization (same family) or a real substitution
+            req_base = model.split("/")[-1].replace("-", "").replace(".", "").lower()
+            act_base = actual_model.split("/")[-1].replace("-", "").replace(".", "").lower()
+            if req_base in act_base or act_base in req_base:
+                log.info("[LLM] OpenRouter normalized model name: %s → %s", model, actual_model)
+            else:
+                log.warning("[LLM] OpenRouter SUBSTITUTED model: requested=%s actual=%s", model, actual_model)
         else:
             log.debug("[LLM] OpenRouter model confirmed: %s", actual_model or model)
         usage = resp_dict.get("usage") or {}

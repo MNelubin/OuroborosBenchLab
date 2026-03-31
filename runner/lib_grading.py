@@ -244,8 +244,13 @@ def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
             data = resp.json()
             actual_model = data.get("model", "unknown")
             if actual_model != clean_model:
-                logger.warning("   [JUDGE] OpenRouter routed to a DIFFERENT model: requested=%s actual=%s",
-                               clean_model, actual_model)
+                req_base = clean_model.split("/")[-1].replace("-", "").replace(".", "").lower()
+                act_base = actual_model.split("/")[-1].replace("-", "").replace(".", "").lower()
+                if req_base in act_base or act_base in req_base:
+                    logger.info("   [JUDGE] OpenRouter normalized model name: %s → %s", clean_model, actual_model)
+                else:
+                    logger.warning("   [JUDGE] OpenRouter SUBSTITUTED model: requested=%s actual=%s",
+                                   clean_model, actual_model)
             else:
                 logger.info("   [JUDGE] OpenRouter confirmed model: %s", actual_model)
             return data["choices"][0]["message"]["content"]
