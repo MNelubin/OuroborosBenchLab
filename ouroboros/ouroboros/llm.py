@@ -201,6 +201,11 @@ class LLMClient:
 
         resp = client.chat.completions.create(**kwargs)
         resp_dict = resp.model_dump()
+        actual_model = resp_dict.get("model") or ""
+        if actual_model and actual_model != model:
+            log.warning("[LLM] OpenRouter used a DIFFERENT model: requested=%s actual=%s", model, actual_model)
+        else:
+            log.debug("[LLM] OpenRouter model confirmed: %s", actual_model or model)
         usage = resp_dict.get("usage") or {}
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}

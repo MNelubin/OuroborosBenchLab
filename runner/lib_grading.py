@@ -242,6 +242,12 @@ def _call_judge_llm(prompt: str, model: str, timeout: float = 180) -> str:
                              resp.status_code, clean_model, resp.text[:500])
                 return ""
             data = resp.json()
+            actual_model = data.get("model", "unknown")
+            if actual_model != clean_model:
+                logger.warning("   [JUDGE] OpenRouter routed to a DIFFERENT model: requested=%s actual=%s",
+                               clean_model, actual_model)
+            else:
+                logger.info("   [JUDGE] OpenRouter confirmed model: %s", actual_model)
             return data["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error("Judge LLM call failed (model=%s): %s", clean_model, e)
