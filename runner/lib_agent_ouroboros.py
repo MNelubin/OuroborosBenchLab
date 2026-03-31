@@ -223,11 +223,20 @@ def run_ouroboros_prompt(agent_id, prompt, model_name=None, timeout=180,
     if model_name is None:
         model_name = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4-6")
     effective_timeout = timeout_seconds if timeout_seconds is not None else timeout
+    log.info("   [JUDGE-DOCKER] Requesting model: %s", model_name)
     with tempfile.TemporaryDirectory() as tmpdir:
         r = execute_ouroboros_task(
             agent_id=agent_id, prompt=prompt, timeout=effective_timeout,
             model_name=model_name, workspace_path=tmpdir,
         )
+        # Surface [LLM] model lines from inside the container
+        if r.stderr:
+            for line in r.stderr.splitlines():
+                if "[LLM]" in line:
+                    if "DIFFERENT" in line:
+                        log.warning("   [JUDGE-DOCKER] %s", line.strip())
+                    else:
+                        log.info("   [JUDGE-DOCKER] %s", line.strip())
         for e in reversed(r.transcript):
             if e.get("type") == "message":
                 msg = e.get("message", {})
