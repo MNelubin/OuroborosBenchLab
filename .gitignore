@@ -1,5 +1,6 @@
 # Byte-compiled / optimized / DLL files
 */__pycache__/
+runner/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -64,7 +65,7 @@ venv.bak/
 ouro_bench_*/
 ouro_transcript_*/
 ouro_ws_*/
-results/
+runner/results/*
 *.jsonl
 *.result.json
 results.json

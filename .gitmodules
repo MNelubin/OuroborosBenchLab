@@ -1,0 +1,3 @@
+[submodule "pinchbench-upstream"]
+	path = pinchbench-upstream
+	url = https://github.com/pinchbench/skill
