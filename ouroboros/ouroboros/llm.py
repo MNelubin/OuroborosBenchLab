@@ -170,6 +170,9 @@ class LLMClient:
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
+        # OpenRouter API expects model IDs without the "openrouter/" prefix
+        model = model.removeprefix("openrouter/")
+
         extra_body: Dict[str, Any] = {
             "reasoning": {"effort": effort, "exclude": True},
         }
